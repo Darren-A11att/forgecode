@@ -6,9 +6,8 @@ use forge_app::domain::{
     ChatCompletionMessage, Context, Model, ModelId, ResultStream, Transformer,
 };
 use forge_app::dto::anthropic::{
-    AuthSystemMessage, CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema,
-    EventData, ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds,
-    SetCache,
+    CapitalizeToolNames, DropInvalidToolUse, EnforceStrictObjectSchema, EventData,
+    ListModelResponse, ReasoningTransform, RemoveOutputFormat, Request, SanitizeToolIds, SetCache,
 };
 use forge_app::{EnvironmentInfra, HttpInfra};
 use forge_domain::{ChatRepository, Provider, ProviderId};
@@ -26,12 +25,11 @@ struct Anthropic<T> {
     http: Arc<T>,
     provider: Provider<Url>,
     anthropic_version: String,
-    use_oauth: bool,
 }
 
 impl<H: HttpInfra> Anthropic<H> {
-    pub fn new(http: Arc<H>, provider: Provider<Url>, version: String, use_oauth: bool) -> Self {
-        Self { http, provider, anthropic_version: version, use_oauth }
+    pub fn new(http: Arc<H>, provider: Provider<Url>, version: String) -> Self {
+        Self { http, provider, anthropic_version: version }
     }
 
     fn get_headers(&self) -> Vec<(String, String)> {
@@ -55,9 +53,8 @@ impl<H: HttpInfra> Anthropic<H> {
 
         if let Some(api_key) = api_key {
             // For Vertex AI, use Authorization: Bearer with Google ADC token
-            // For OAuth, use Authorization: Bearer
             // For API key, use x-api-key header
-            if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC || self.use_oauth {
+            if self.provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
                 headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
             } else {
                 headers.push(("x-api-key".to_string(), api_key.to_string()));
@@ -66,19 +63,10 @@ impl<H: HttpInfra> Anthropic<H> {
 
         // Add beta flags (not needed for Vertex AI)
         if self.provider.id != ProviderId::VERTEX_AI_ANTHROPIC {
-            if self.use_oauth {
-                // OAuth requires multiple beta flags including structured outputs
-                headers.push((
-                    "anthropic-beta".to_string(),
-                    "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string(),
-                ));
-            } else {
-                // API key auth also needs beta flags for structured outputs and thinking
-                headers.push((
-                    "anthropic-beta".to_string(),
-                    "interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string(),
-                ));
-            }
+            headers.push((
+                "anthropic-beta".to_string(),
+                "interleaved-thinking-2025-05-14,structured-outputs-2025-11-13".to_string(),
+            ));
         }
 
         headers
@@ -110,9 +98,7 @@ impl<T: HttpInfra> Anthropic<T> {
             request = request.model(model.as_str().to_string());
         }
 
-        let pipeline = AuthSystemMessage::default()
-            .when(|_| self.use_oauth)
-            .pipe(CapitalizeToolNames)
+        let pipeline = CapitalizeToolNames::default()
             .pipe(DropInvalidToolUse)
             .pipe(SanitizeToolIds);
 
@@ -303,13 +289,6 @@ impl<F: HttpInfra> AnthropicResponseRepository<F> {
             .as_ref()
             .context("Anthropic provider requires credentials")?;
 
-        // Determine OAuth usage based on auth details
-        let is_oauth = provider
-            .credential
-            .as_ref()
-            .map(|c| matches!(c.auth_details, forge_domain::AuthDetails::OAuth { .. }))
-            .unwrap_or(false);
-
         // Use different API version for Vertex AI
         let version = if provider.id == ProviderId::VERTEX_AI_ANTHROPIC {
             "vertex-2023-10-16".to_string()
@@ -321,7 +300,6 @@ impl<F: HttpInfra> AnthropicResponseRepository<F> {
             self.infra.clone(),
             provider,
             version,
-            is_oauth,
         ))
     }
 }
@@ -452,7 +430,6 @@ mod tests {
             Arc::new(MockHttpClient::new()),
             provider,
             "2023-06-01".to_string(),
-            false,
         ))
     }
 
@@ -520,7 +497,6 @@ mod tests {
             Arc::new(MockHttpClient::new()),
             provider.clone(),
             "v1".to_string(),
-            false,
         );
         match &anthropic.provider.models {
             Some(forge_domain::ModelSource::Url(url)) => {
@@ -660,7 +636,6 @@ mod tests {
             Arc::new(MockHttpClient::new()),
             provider,
             "2023-06-01".to_string(),
-            false, // API key auth (not OAuth)
         );
 
         let actual = fixture.get_headers();
@@ -739,7 +714,6 @@ mod tests {
             Arc::new(MockHttpClient::new()),
             provider,
             "2023-06-01".to_string(),
-            true, // OAuth auth
         );
 
         let actual = fixture.get_headers();
@@ -751,28 +725,24 @@ mod tests {
                 .any(|(k, v)| k == "anthropic-version" && v == "2023-06-01")
         );
 
-        // Should contain authorization header (not x-api-key)
+        // OAuth credentials use x-api-key (access token is treated as API key)
         assert!(
             actual
                 .iter()
-                .any(|(k, v)| k == "authorization" && v == "Bearer oauth-token")
+                .any(|(k, _)| k == "x-api-key")
         );
 
         // Should contain anthropic-beta header with structured outputs support
         let beta_header = actual.iter().find(|(k, _)| k == "anthropic-beta");
         assert!(
             beta_header.is_some(),
-            "anthropic-beta header should be present for OAuth"
+            "anthropic-beta header should be present"
         );
 
         let (_, beta_value) = beta_header.unwrap();
         assert!(
             beta_value.contains("structured-outputs-2025-11-13"),
             "Beta header should include structured-outputs flag"
-        );
-        assert!(
-            beta_value.contains("oauth-2025-04-20"),
-            "Beta header should include oauth flag for OAuth auth"
         );
     }
 
@@ -816,7 +786,6 @@ mod tests {
             Arc::new(MockHttpClient::new()),
             provider,
             "vertex-2023-10-16".to_string(),
-            false,
         );
 
         // Create a context with response_format (which would normally add
@@ -831,9 +800,7 @@ mod tests {
         request = request.anthropic_version("vertex-2023-10-16".to_string());
 
         // Apply the transformer pipeline (same as in chat method)
-        let pipeline = AuthSystemMessage::default()
-            .when(|_| false) // Not using OAuth
-            .pipe(CapitalizeToolNames)
+        let pipeline = CapitalizeToolNames::default()
             .pipe(DropInvalidToolUse)
             .pipe(SanitizeToolIds);
 

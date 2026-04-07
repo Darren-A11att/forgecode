@@ -569,10 +569,10 @@
   },
   {
     "id": "claude_code",
-    "api_key_vars": "CLAUDE_API_KEY",
+    "api_key_vars": "AGENT_SDK_SIDECAR_KEY",
     "url_param_vars": [],
     "response_type": "Anthropic",
-    "url": "https://api.anthropic.com/v1/messages",
+    "url": "http://127.0.0.1:8377/v1/messages",
     "models": [
       {
         "id": "claude-sonnet-4-6",
@@ -682,24 +682,7 @@
       }
     ],
     "auth_methods": [
-      {
-        "oauth_code": {
-          "auth_url": "https://claude.ai/oauth/authorize",
-          "token_url": "https://console.anthropic.com/v1/oauth/token",
-          "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-          "scopes": [
-            "org:create_api_key",
-            "user:profile",
-            "user:inference",
-            "user:sessions:claude_code"
-          ],
-          "redirect_uri": "https://console.anthropic.com/oauth/code/callback",
-          "use_pkce": true,
-          "extra_auth_params": {
-            "code": "true"
-          }
-        }
-      }
+      "api_key"
     ]
   },
   {

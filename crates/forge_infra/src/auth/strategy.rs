@@ -12,7 +12,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use url::Url;
 
 use crate::auth::error::Error as AuthError;
-use crate::auth::http::{AnthropicHttpProvider, GithubHttpProvider, StandardHttpProvider};
+use crate::auth::http::{GithubHttpProvider, StandardHttpProvider};
 use crate::auth::util::*;
 
 /// API Key Strategy - Simple static key authentication
@@ -995,7 +995,6 @@ async fn exchange_oauth_for_api_key(
 pub enum AnyAuthStrategy {
     ApiKey(ApiKeyStrategy),
     OAuthCodeStandard(OAuthCodeStrategy<StandardHttpProvider>),
-    OAuthCodeAnthropic(OAuthCodeStrategy<AnthropicHttpProvider>),
     OAuthCodeGithub(OAuthCodeStrategy<GithubHttpProvider>),
     OAuthDevice(OAuthDeviceStrategy),
     OAuthWithApiKey(OAuthWithApiKeyStrategy),
@@ -1009,7 +1008,7 @@ impl AuthStrategy for AnyAuthStrategy {
         match self {
             Self::ApiKey(s) => s.init().await,
             Self::OAuthCodeStandard(s) => s.init().await,
-            Self::OAuthCodeAnthropic(s) => s.init().await,
+
             Self::OAuthCodeGithub(s) => s.init().await,
             Self::OAuthDevice(s) => s.init().await,
             Self::OAuthWithApiKey(s) => s.init().await,
@@ -1025,7 +1024,7 @@ impl AuthStrategy for AnyAuthStrategy {
         match self {
             Self::ApiKey(s) => s.complete(context_response).await,
             Self::OAuthCodeStandard(s) => s.complete(context_response).await,
-            Self::OAuthCodeAnthropic(s) => s.complete(context_response).await,
+
             Self::OAuthCodeGithub(s) => s.complete(context_response).await,
             Self::OAuthDevice(s) => s.complete(context_response).await,
             Self::OAuthWithApiKey(s) => s.complete(context_response).await,
@@ -1038,7 +1037,7 @@ impl AuthStrategy for AnyAuthStrategy {
         match self {
             Self::ApiKey(s) => s.refresh(credential).await,
             Self::OAuthCodeStandard(s) => s.refresh(credential).await,
-            Self::OAuthCodeAnthropic(s) => s.refresh(credential).await,
+
             Self::OAuthCodeGithub(s) => s.refresh(credential).await,
             Self::OAuthDevice(s) => s.refresh(credential).await,
             Self::OAuthWithApiKey(s) => s.refresh(credential).await,
@@ -1078,14 +1077,6 @@ impl StrategyFactory for ForgeAuthStrategyFactory {
                 required_params,
             ))),
             forge_domain::AuthMethod::OAuthCode(config) => {
-                if provider_id == ProviderId::CLAUDE_CODE {
-                    return Ok(AnyAuthStrategy::OAuthCodeAnthropic(OAuthCodeStrategy::new(
-                        AnthropicHttpProvider,
-                        provider_id,
-                        config,
-                    )));
-                }
-
                 if provider_id == ProviderId::GITHUB_COPILOT {
                     return Ok(AnyAuthStrategy::OAuthCodeGithub(OAuthCodeStrategy::new(
                         GithubHttpProvider,
